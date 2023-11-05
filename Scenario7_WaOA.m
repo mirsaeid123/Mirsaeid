@@ -1,0 +1,211 @@
+clear all;
+tic
+n=25; %number of fog nodes
+m=200; %number of tasks
+WalrusSize=100;
+BW=50; %Mbps Mega bit per second
+% Fog specifications%----------
+CPU_rate=zeros(1,n); % MIPS
+CPU_price=zeros(1,n); %G$/s
+Mem_price=zeros(1,n); %G$/MB
+BW_price=zeros(1,n); %G$/MB
+CPU_fail=zeros(1,n); % failure rate/hour
+% Task specification %----------
+Inst=zeros(1,m); % *10^9
+Mem=zeros(1,m); % MB
+File_in=zeros(1,m); % MB
+File_out=zeros(1,m); % MB
+%---------------------------
+% CPU_rate=randi([5,15],1,n)*100;
+% CPU_price=0.1+0.6*rand(1,n);
+% Mem_price=0.01+0.02*rand(1,n);
+% BW_price=0.01+0.04*rand(1,n);
+% CPU_fail=10^(-4)+(10^(-2)-10^(-4))*rand(1,n);
+
+CPU_rate=csvread('CPU_rate7.csv');
+CPU_price=csvread('CPU_price7.csv');
+Mem_price=csvread('Mem_price7.csv');
+BW_price=csvread('BW_price7.csv');
+CPU_fail=csvread('CPU_fail7.csv');
+%----------------------------------
+
+Inst=randi([1,100],1,m);
+Mem_request=randi([5,20],1,m)*10;
+File_request_in=randi([1,10],1,m)*10;
+File_request_out=randi([1,10],1,m)*10;
+Inst=csvread('Inst7.csv');
+Mem_request=csvread('Mem_request7.csv');
+File_request_in=csvread('File_request_in7.csv');
+File_request_out=csvread('File_request_out7.csv');
+Walrus=zeros(WalrusSize,m);
+Fitness1=zeros(1,WalrusSize); %makespan
+Fitness2=zeros(1,WalrusSize); %monetary Cost
+Fitness3=zeros(1,WalrusSize); % total SFF
+
+Crate=0.80; % crossover_rate=80%
+Mrate=0.05; % crossover_rate=5%
+PS_Size=0; %Pareto size
+PS=zeros(WalrusSize,m); %for pareto set
+% Fitness11=zeros(1,PopSize);
+% Fitness21=zeros(1,PopSize);
+% Fitness31=zeros(1,PopSize);
+
+for i=1:WalrusSize
+    for j=1:m
+      Walrus(i,j)=randi([1,n]);
+    end
+    Walrus(i,:)=LoadBalancer3( Walrus(i,:), Inst,CPU_rate, m,n,BW, File_request_in,File_request_out );
+    Fitness1(i)= Makespan( Walrus(i,:), Inst, CPU_rate, m, n, BW, File_request_in,File_request_out );
+    Fitness2(i)=Cost( Walrus(i,:), Inst,Mem,File_request_in,File_request_out, CPU_rate,CPU_price,Mem_price,BW_price, m, n );
+    Fitness3(i)=SFF( Walrus(i,:), Inst, CPU_rate,CPU_fail, m, n );
+
+end
+
+
+[ Rank,Len,NewSol,SolSize ] = fast_non_dominated_sort( Walrus, WalrusSize,Fitness1,Fitness2,Fitness3 );
+%[DSS,LEN4]=CrowdingDistance(NewSol,SolSize,Fitness1,Fitness2,Fitness3);
+
+PS_Size=0;
+for i=1:length(Rank(1).front)
+    PS_Size=PS_Size+1;
+    PS(PS_Size,:)=Walrus(Rank(1).front(i),:);
+end
+%The worst walrus in population
+WorstWalrus=Walrus(Rank(Len).front(1),:);
+%calculate fitness for paret solutions
+for i=1:PS_Size
+    Fit1(i)= Makespan( PS(i,:), Inst, CPU_rate, m, n, BW, File_request_in,File_request_out );
+    Fit2(i)=Cost( PS(i,:), Inst,Mem,File_request_in,File_request_out, CPU_rate,CPU_price,Mem_price,BW_price, m, n );
+    Fit3(i)=SFF( PS(i,:), Inst, CPU_rate,CPU_fail, m, n );
+
+end
+Fit1(1)
+Fit2(1)
+Fit3(1)
+%ScoreFirst=FinalScore2( Fit1(1),Fit2(1),Fit3(1), w1,w2,w3,min1,Max1,min2,Max2,min3,Max3 )
+
+% find alpha, beta, delta wolves
+[DSS,LEN4]=CrowdingDistance(PS,PS_Size,Fit1,Fit2,Fit3);
+NUM=3; %number of leaders
+Leaders=zeros(NUM,m);
+INDEX=zeros(1,LEN4);
+j=0;
+while j~=NUM
+    MX=-inf;
+    idx=-1;
+    for k=1:LEN4
+        if (INDEX(k)==0)&&(DSS(k).CD > MX)
+            idx=k;
+            MX=DSS(k).CD;
+        end
+    end
+    j=j+1;
+    Leader(j,:)=DSS(idx).Chr;
+    INDEX(idx)=1;
+end
+
+w1=0.33;
+w2=0.33;
+w3=0.33;
+min1=min(Fitness1);
+Max1=max(Fitness1);
+min2=min(Fitness2);
+Max2=max(Fitness2);
+min3=min(Fitness3);
+Max3=max(Fitness3);
+
+Strongest=PS(1,:);
+Beta=PS(2,:);
+Delta=PS(3,:);
+F11= Makespan( Strongest, Inst, CPU_rate, m, n, BW, File_request_in,File_request_out );
+F12=Cost( Strongest, Inst,Mem,File_request_in,File_request_out, CPU_rate,CPU_price,Mem_price,BW_price, m, n );
+F13=SFF( Strongest, Inst, CPU_rate,CPU_fail, m, n );
+ScoreFirst=FinalScore2( F11,F12,F13, w1,w2,w3,min1,Max1,min2,Max2,min3,Max3 )
+% F21= Makespan( Beta, Inst, CPU_rate, m, n, BW, File_request_in,File_request_out );
+% F22=Cost( Beta, Inst,Mem,File_request_in,File_request_out, CPU_rate,CPU_price,Mem_price,BW_price, m, n );
+% F23=SFF( Beta, Inst, CPU_rate,CPU_fail, m, n );
+% F31= Makespan( Delta, Inst, CPU_rate, m, n, BW, File_request_in,File_request_out );
+% F32=Cost( Delta, Inst,Mem,File_request_in,File_request_out, CPU_rate,CPU_price,Mem_price,BW_price, m, n );
+% F33=SFF( Delta, Inst, CPU_rate,CPU_fail, m, n );
+
+% List=[2,3,4,5,6,7,8,9];
+% List1=Exploration_Type_4(List,8)
+% kkkk
+MaxIter=10;
+Iter=1;
+while Iter<=MaxIter
+    for i=1:WalrusSize
+        % update Strongest Walrus
+        %----------------------------
+        %Phase 1:Exploration(feeding)
+        %----------------------------
+        TEMP=Phase1_Feeding(Walrus(i,:),Strongest,m);
+        FTemp1= Makespan( TEMP, Inst, CPU_rate, m, n, BW, File_request_in,File_request_out );
+        FTemp2=Cost( TEMP, Inst,Mem,File_request_in,File_request_out, CPU_rate,CPU_price,Mem_price,BW_price, m, n );
+        FTemp3=SFF( TEMP, Inst, CPU_rate,CPU_fail, m, n );        
+        if Dominate(FTemp1,FTemp2,FTemp3,Fitness1(i),Fitness2(i),Fitness3(i))==1
+            Walrus(i,:)=TEMP;
+            Fitness1(i)=FTemp1;
+            Fitness2(i)=FTemp2;
+            Fitness3(i)=FTemp3;
+        end
+        %----End-Phase1-------------
+        %
+        %----------------------------
+        %Phase 2:Migration
+        %----------------------------
+        J=i;
+        while J==i
+            J=randi([1,WalrusSize]);
+        end
+        RandWalrus=Walrus(J,:);
+        TEMP=Phase2_Migration(Walrus(i,:),RandWalrus,m);
+        FTemp1= Makespan( TEMP, Inst, CPU_rate, m, n, BW, File_request_in,File_request_out );
+        FTemp2=Cost( TEMP, Inst,Mem,File_request_in,File_request_out, CPU_rate,CPU_price,Mem_price,BW_price, m, n );
+        FTemp3=SFF( TEMP, Inst, CPU_rate,CPU_fail, m, n );        
+        if Dominate(FTemp1,FTemp2,FTemp3,Fitness1(i),Fitness2(i),Fitness3(i))==1
+            Walrus(i,:)=TEMP;
+            Fitness1(i)=FTemp1;
+            Fitness2(i)=FTemp2;
+            Fitness3(i)=FTemp3;
+        end
+        %----End-Phase2-------------
+        %
+        %----------------------------
+        %Phase 3:Escaping & Fighting (Exploitation)
+        %----------------------------
+        TEMP=Phase3_Escaping(Walrus(i,:),WorstWalrus,m);
+        FTemp1= Makespan( TEMP, Inst, CPU_rate, m, n, BW, File_request_in,File_request_out );
+        FTemp2=Cost( TEMP, Inst,Mem,File_request_in,File_request_out, CPU_rate,CPU_price,Mem_price,BW_price, m, n );
+        FTemp3=SFF( TEMP, Inst, CPU_rate,CPU_fail, m, n );        
+        if Dominate(FTemp1,FTemp2,FTemp3,Fitness1(i),Fitness2(i),Fitness3(i))==1
+            Walrus(i,:)=TEMP;
+            Fitness1(i)=FTemp1;
+            Fitness2(i)=FTemp2;
+            Fitness3(i)=FTemp3;
+        end
+        %----End-Phase3-------------
+
+        %---Create newe Pareto Set
+        [ Rank,Len,NewSol,SolSize ] = fast_non_dominated_sort( Walrus, WalrusSize,Fitness1,Fitness2,Fitness3 );
+        %[DSS,LEN4]=CrowdingDistance(NewSol,SolSize,Fitness1,Fitness2,Fitness3);
+        PS_Size=0;
+        for i=1:length(Rank(1).front)
+          PS_Size=PS_Size+1;
+          PS(PS_Size,:)=Walrus(Rank(1).front(i),:);
+        end
+        % update strongest and worst walrus
+        Strongest=PS(1,:);
+        WorstWalrus=Walrus(Rank(Len).front(1),:);
+    end
+    
+    Iter=Iter+1;
+end
+
+F11= Makespan( Strongest, Inst, CPU_rate, m, n, BW, File_request_in,File_request_out )
+F12=Cost( Strongest, Inst,Mem,File_request_in,File_request_out, CPU_rate,CPU_price,Mem_price,BW_price, m, n )
+F13=SFF( Strongest, Inst, CPU_rate,CPU_fail, m, n )
+ScoreFinal=FinalScore2( F11,F12,F13, w1,w2,w3,min1,Max1,min2,Max2,min3,Max3 )
+toc
+%rectangle('Position',[1,1,3,3]);
+
